@@ -9,23 +9,18 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class DeliveryThresholds:
     """Delivery time thresholds in hours."""
-    fast: float = 6.0        # Under this = definitely fast
-    slow: float = 24.0       # Over this = definitely slow
-    very_slow: float = 48.0  # Over this = very slow
+    fast: float = 6.0
+    slow: float = 24.0
+    very_slow: float = 48.0
 
 
 @dataclass(frozen=True)
 class PenaltyConfig:
     """Penalty points for each contradiction type."""
-    # Qualitative-Qualitative
     qual_qual: float = 30.0
-
-    # Quantitative-Qualitative
     quant_qual_very_slow: float = 25.0
     quant_qual_slow: float = 15.0
     quant_qual_fast_with_complaint: float = 10.0
-
-    # Score-Notes
     score_notes_severe: float = 25.0
     score_notes_moderate: float = 15.0
     score_notes_mild: float = 10.0
@@ -65,43 +60,42 @@ class Settings:
         "products": ["محصولات", "products"],
     })
 
-    # Known semantic contradiction keywords
-    contradiction_keywords: dict = field(default_factory=lambda: {
-        "تحویل به موقع": ["تاخیر", "تأخیر", "دیر"],
-        "رفتار محترمانه": ["نامناسب", "بد", "بی‌ادب", "بی ادب"],
-        "رعایت اصول بهداشتی": ["عدم بهداشت", "عدم رعایت", "کثیف"],
-        "بسته بندی مناسب": ["عدم بسته بندی", "بسته بندی نامناسب", "بدون بسته بندی"],
-        "تحویل با پاکت": ["بدون پاکت"],
-        "سلامت کالا": ["عدم سلامت", "آسیب"],
-    })
-
-    # Known hard-coded contradiction pairs
-    known_contradiction_pairs: list = field(default_factory=lambda: [
-        ("تحویل به موقع", "تاخیر در تحویل"),
-        ("تحویل به موقع", "تأخیر در تحویل"),
-        ("تحویل به موقع", "تاخیر تحویل"),
+    # ──────────────────────────────────────────────────────────
+    # ONLY these 4 pairs are real contradictions.
+    # NO guessing. NO keyword matching. NO priority-based pairing.
+    # ──────────────────────────────────────────────────────────
+    explicit_contradiction_pairs: list = field(default_factory=lambda: [
+        ("تحویل به موقع", "تاخیر در ارسال سفارش"),
+        ("رفتار محترمانه", "عدم توجه به حریم شخصی"),
         ("رفتار محترمانه", "رفتار نامناسب"),
-        ("رفتار محترمانه", "برخورد نامناسب"),
-        ("رعایت اصول بهداشتی", "عدم رعایت بهداشت"),
-        ("رعایت اصول بهداشتی", "عدم بهداشت"),
-        ("بسته بندی مناسب", "عدم بسته بندی و سلامت کالا"),
-        ("بسته بندی مناسب", "بسته بندی نامناسب"),
-        ("سلامت کالا", "عدم بسته بندی و سلامت کالا"),
-        ("تحویل با پاکت", "تحویل بدون پاکت"),
+        ("رعایت اصول بهداشتی", "عدم بسته‌بندی و سلامت کالا"),
     ])
 
-    # Default key sheet data (fallback)
+    # Delay keywords for quantitative-qualitative detector
+    delay_keywords: list = field(default_factory=lambda: [
+        "تاخیر", "تأخیر", "دیر",
+        "تاخیر در ارسال", "تأخیر در ارسال",
+        "تاخیر در ارسال سفارش", "تأخیر در ارسال سفارش",
+    ])
+
+    # On-time keywords for quantitative-qualitative detector
+    ontime_keywords: list = field(default_factory=lambda: [
+        "تحویل به موقع",
+    ])
+
+    # Default key sheet data (fallback if key sheet not found)
     default_key_data: dict = field(default_factory=lambda: {
         "Option": [
             "رفتار محترمانه", "رعایت اصول بهداشتی", "تحویل به موقع",
             "بسته بندی مناسب", "سلامت کالا", "تحویل با پاکت",
-            "رفتار نامناسب", "عدم رعایت بهداشت", "تاخیر در تحویل",
-            "تأخیر در تحویل", "بسته بندی نامناسب", "عدم بسته بندی و سلامت کالا",
+            "رفتار نامناسب", "عدم توجه به حریم شخصی",
+            "عدم رعایت بهداشت", "تاخیر در ارسال سفارش",
+            "بسته بندی نامناسب", "عدم بسته‌بندی و سلامت کالا",
             "تحویل بدون پاکت", "برخورد نامناسب",
         ],
         "Score (+/-)": [
             "+", "+", "+", "+", "+", "+",
             "-", "-", "-", "-", "-", "-", "-", "-",
         ],
-        "Priority": [1, 2, 3, 4, 5, 6, 1, 2, 3, 3, 4, 5, 6, 1],
+        "Priority": [1, 2, 3, 4, 5, 6, 1, 1, 2, 3, 4, 5, 6, 1],
     })

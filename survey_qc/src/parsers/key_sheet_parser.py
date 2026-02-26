@@ -1,6 +1,8 @@
 """
 Parses the key/reference sheet into structured KeyEntry objects.
-Handles both string ('+', '-') and numeric score columns.
+
+CRITICAL FIX: Contradiction pairs come ONLY from Settings.explicit_contradiction_pairs.
+NO priority-based guessing. NO keyword matching. ONLY explicit pairs.
 """
 
 from typing import Optional
@@ -16,7 +18,7 @@ class KeySheetParser:
     """
     Parses the key sheet and builds:
     - Positive/negative option sets
-    - Contradiction pair list (hard-coded + dynamically detected)
+    - Contradiction pairs (ONLY from explicit settings)
     """
 
     def __init__(self, key_df: pd.DataFrame, settings: Optional[Settings] = None):
@@ -28,7 +30,7 @@ class KeySheetParser:
         self._contradiction_pairs: list[tuple[str, str]] = []
         self._parse()
 
-    # ---- Public API ----
+    # ── Public API ────────────────────────────────────────────
 
     @property
     def positive_options(self) -> set[str]:
@@ -46,12 +48,15 @@ class KeySheetParser:
     def entries(self) -> list[KeyEntry]:
         return list(self._entries)
 
-    # ---- Parsing Logic ----
+    # ── Parsing Logic ─────────────────────────────────────────
 
     def _parse(self):
         df = self._raw
         option_col = self._find_column(df, ["option", "گزینه", "آپشن"])
-        score_col = self._find_column(df, ["score", "امتیاز", "نمره", "+/-", "score (+/-)"])
+        score_col = self._find_column(df, [
+            "score", "امتیاز", "نمره", "+/-", "score (+/-)",
+            "score(+/-)", "نوع",
+        ])
         priority_col = self._find_column(df, ["priority", "اولویت", "ترتیب"])
 
         if option_col is None:
@@ -81,44 +86,57 @@ class KeySheetParser:
             else:
                 self._negative_options.add(option)
 
+        # ONLY explicit pairs — nothing else
         self._build_contradiction_pairs()
 
     def _build_contradiction_pairs(self):
-        """Combine hard-coded pairs with dynamically detected ones."""
-        pairs = set()
+        """
+        Build contradiction pairs ONLY from Settings.explicit_contradiction_pairs.
 
-        # Hard-coded known pairs
-        for p, n in self._settings.known_contradiction_pairs:
-            pairs.add((p, n))
+        NO priority-based pairing.
+        NO keyword guessing.
 
-        # Dynamic: pair positive vs negative with semantic overlap
-        for pos in self._positive_options:
-            for neg in self._negative_options:
-                if self._are_semantically_contradictory(pos, neg):
-                    pairs.add((pos, neg))
+        Uses normalized text to match against actual key sheet options,
+        but the pairs themselves come ONLY from explicit configuration.
+        """
+        pairs = []
+        all_options_normalized = {
+            self._normalize(e.option): e.option for e in self._entries
+        }
 
-        self._contradiction_pairs = list(pairs)
+        for pos, neg in self._settings.explicit_contradiction_pairs:
+            # Try to resolve each side to the actual key sheet text
+            pos_norm = self._normalize(pos)
+            neg_norm = self._normalize(neg)
 
-    def _are_semantically_contradictory(self, pos: str, neg: str) -> bool:
-        """Check using keyword mapping from settings."""
-        for positive_key, neg_keywords in self._settings.contradiction_keywords.items():
-            if positive_key in pos:
-                for nk in neg_keywords:
-                    if nk in neg:
-                        return True
+            pos_actual = all_options_normalized.get(pos_norm, pos)
+            neg_actual = all_options_normalized.get(neg_norm, neg)
 
-        # Fallback: shared content words with negation indicator
-        pos_words = set(pos.split())
-        neg_words = set(neg.split())
-        negation_indicators = {"عدم", "نا", "بدون", "نامناسب"}
-        trivial = {"و", "در", "به", "با", "از", "کالا", "بسته"}
-        shared = (pos_words & neg_words) - trivial
-        if len(shared) >= 1 and neg_words & negation_indicators:
-            return True
+            pairs.append((pos_actual, neg_actual))
 
-        return False
+        self._contradiction_pairs = pairs
 
-    # ---- Static Helpers ----
+    # ── Text Normalization ────────────────────────────────────
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """
+        Normalize Persian text for comparison:
+        - Remove half-space (\\u200c)
+        - Normalize ی/ک/ة
+        - Strip and collapse whitespace
+        """
+        if not text:
+            return ""
+        t = text.strip()
+        t = t.replace("\u200c", " ")
+        t = t.replace("ي", "ی")
+        t = t.replace("ك", "ک")
+        t = t.replace("ة", "ه")
+        t = " ".join(t.split())
+        return t
+
+    # ── Column / Value Helpers ────────────────────────────────
 
     @staticmethod
     def _find_column(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
@@ -126,6 +144,7 @@ class KeySheetParser:
         for candidate in candidates:
             if candidate.lower() in cols_lower:
                 return cols_lower[candidate.lower()]
+        # Substring fallback
         for candidate in candidates:
             for col_lower, col_original in cols_lower.items():
                 if candidate.lower() in col_lower:
@@ -134,13 +153,12 @@ class KeySheetParser:
 
     @staticmethod
     def _parse_sentiment(value) -> str:
-        """Convert any score representation to '+' or '-'."""
         if pd.isna(value):
             return "+"
         s = str(value).strip()
-        if s in ("+", "مثبت", "1", "positive", "pos"):
+        if s in ("+", "مثبت", "1", "1.0", "positive", "pos"):
             return "+"
-        if s in ("-", "منفی", "-1", "negative", "neg"):
+        if s in ("-", "منفی", "-1", "-1.0", "negative", "neg"):
             return "-"
         try:
             return "+" if float(s) >= 0 else "-"

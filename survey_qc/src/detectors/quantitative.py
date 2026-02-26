@@ -1,6 +1,8 @@
 """
 Detector: Quantitative-Qualitative contradictions.
 Finds cases where delivery time data contradicts qualitative feedback.
+
+Uses delay_keywords and ontime_keywords from Settings.
 """
 
 import pandas as pd
@@ -21,7 +23,7 @@ class QuantitativeQualitativeDetector(ContradictionDetector):
     Detects contradictions between delivery time and qualitative notes.
 
     Example 1: Delivery took 48 hours but customer says "تحویل به موقع".
-    Example 2: Delivery took 2 hours but customer complains about delay.
+    Example 2: Delivery took 2 hours but customer says "تاخیر در ارسال سفارش".
     """
 
     def __init__(self, settings: Settings | None = None):
@@ -44,7 +46,7 @@ class QuantitativeQualitativeDetector(ContradictionDetector):
         hours = JalaliDateParser.calculate_hours_between(
             row.get(entry_col), row.get(delivery_col)
         )
-        if hours is None:
+        if hours is None or hours < 0:
             return contradictions
 
         pos_notes = NoteParser.parse(
@@ -54,15 +56,17 @@ class QuantitativeQualitativeDetector(ContradictionDetector):
             row.get(cols.get("negative_notes")) if cols.get("negative_notes") else None
         )
 
-        has_ontime = NoteParser.contains_keyword(pos_notes, "تحویل به موقع")
+        has_ontime = NoteParser.contains_any_keyword(
+            pos_notes, self._settings.ontime_keywords
+        )
         has_delay = NoteParser.contains_any_keyword(
-            neg_notes, ["تاخیر", "تأخیر", "دیر"]
+            neg_notes, self._settings.delay_keywords
         )
 
         thresholds = self._settings.delivery
         penalties = self._settings.penalties
 
-        # Slow delivery + on-time claim
+        # Case 1: Slow delivery + on-time claim
         if hours > thresholds.slow and has_ontime:
             penalty = (
                 penalties.quant_qual_very_slow
@@ -80,7 +84,7 @@ class QuantitativeQualitativeDetector(ContradictionDetector):
                 detail=f"ساعت تحویل: {hours:.1f}",
             ))
 
-        # Fast delivery + delay complaint
+        # Case 2: Fast delivery + delay complaint
         if hours < thresholds.fast and has_delay:
             contradictions.append(Contradiction(
                 row_index=row.name,

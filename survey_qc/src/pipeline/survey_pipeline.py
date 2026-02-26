@@ -28,10 +28,6 @@ from src.reporting.report_generator import ExcelReportGenerator
 class SurveyQCPipeline:
     """
     Single entry point for the entire QC system.
-
-    Usage:
-        pipeline = SurveyQCPipeline("survey.xlsx", "qc_report.xlsx")
-        results = pipeline.run()
     """
 
     def __init__(
@@ -54,14 +50,16 @@ class SurveyQCPipeline:
         print("\n📥 بارگذاری داده‌ها...")
         survey_df, key_df = self._load_data()
         print(f"   ✅ تعداد نظرسنجی: {len(survey_df)}")
-        print(f"   ✅ تعداد کلید: {len(key_df)}")
+        print(f"   ✅ تعداد ردیف کلید: {len(key_df)}")
 
         # 2. Parse key sheet
         print("\n🔑 پردازش شیت کلیدها...")
         key_parser = KeySheetParser(key_df, self._settings)
-        print(f"   ✅ گزینه‌های مثبت: {len(key_parser.positive_options)}")
-        print(f"   ✅ گزینه‌های منفی: {len(key_parser.negative_options)}")
-        print(f"   ✅ جفت‌های متناقض: {len(key_parser.contradiction_pairs)}")
+        print(f"   ✅ گزینه‌های مثبت: {key_parser.positive_options}")
+        print(f"   ✅ گزینه‌های منفی: {key_parser.negative_options}")
+        print(f"   ✅ جفت‌های متناقض ({len(key_parser.contradiction_pairs)}):")
+        for pos, neg in key_parser.contradiction_pairs:
+            print(f"      • «{pos}» ↔ «{neg}»")
 
         # 3. Resolve columns
         print("\n📋 شناسایی ستون‌ها...")
@@ -87,7 +85,7 @@ class SurveyQCPipeline:
         self._print_footer()
         return results
 
-    # ---- Data Loading ----
+    # ── Data Loading ──────────────────────────────────────────
 
     def _load_data(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         path = Path(self._input_path)
@@ -122,7 +120,7 @@ class SurveyQCPipeline:
 
         return survey_df, key_df
 
-    # ---- Detectors ----
+    # ── Detectors ─────────────────────────────────────────────
 
     def _build_detectors(self) -> list[ContradictionDetector]:
         return [
@@ -131,7 +129,7 @@ class SurveyQCPipeline:
             ScoreNotesDetector(self._settings),
         ]
 
-    # ---- Helpers ----
+    # ── Helpers ───────────────────────────────────────────────
 
     @staticmethod
     def _find_sheet(names: list[str], candidates: list[str]) -> Optional[str]:
@@ -149,8 +147,8 @@ class SurveyQCPipeline:
         ]
         for key in important_keys:
             resolved = col_resolver.get(key)
-            status = "✅" if resolved else "⚠️ NOT FOUND"
-            print(f"   {key}: {resolved} {status}")
+            status = f"→ {resolved}" if resolved else "⚠️ NOT FOUND"
+            print(f"   {key}: {status}")
 
     @staticmethod
     def _print_summary(results: list[QCResult]):
@@ -163,36 +161,37 @@ class SurveyQCPipeline:
         review = sum(1 for r in results if r.status == QCStatus.REVIEW)
         rejected = sum(1 for r in results if r.status == QCStatus.REJECT)
         total_contra = sum(r.contradiction_count for r in results)
+        with_contra = sum(1 for r in results if r.has_contradictions)
         avg_reliability = np.mean([r.reliability_score for r in results])
 
-        print(f"\n{'─' * 40}")
+        print(f"\n{'─' * 50}")
         print(f"📊 خلاصه نتایج:")
-        print(f"{'─' * 40}")
-        print(f"   📋 کل: {total}")
-        print(f"   ✅ تأیید: {confirmed} ({confirmed/total*100:.1f}%)")
-        print(f"   ⚠️  بررسی: {review} ({review/total*100:.1f}%)")
-        print(f"   ❌ رد: {rejected} ({rejected/total*100:.1f}%)")
-        print(f"   🔴 تناقضات: {total_contra}")
-        print(f"   📊 میانگین اعتبار: {avg_reliability:.1f}")
+        print(f"{'─' * 50}")
+        print(f"   📋 کل نظرسنجی‌ها:        {total}")
+        print(f"   ✅ تأیید:                {confirmed} ({confirmed/total*100:.1f}%)")
+        print(f"   ⚠️  نیاز به بررسی:       {review} ({review/total*100:.1f}%)")
+        print(f"   ❌ رد:                   {rejected} ({rejected/total*100:.1f}%)")
+        print(f"   🔴 تعداد کل تناقضات:     {total_contra}")
+        print(f"   🔍 نظرسنجی‌های با تناقض:  {with_contra}")
+        print(f"   📊 میانگین اعتبار:        {avg_reliability:.1f}")
 
-        problematic = [r for r in results if r.status != QCStatus.CONFIRM]
+        # Show problematic rows
+        problematic = [r for r in results if r.has_contradictions]
         if problematic:
-            print(f"\n   🔍 نمونه‌های مشکل‌دار (حداکثر 10):")
-            for r in problematic[:10]:
-                contras = ", ".join(
-                    c.description[:50] for c in r.contradictions
-                )
+            print(f"\n   🔍 نمونه‌های مشکل‌دار (حداکثر 15):")
+            for r in problematic[:15]:
+                contras = " | ".join(c.description for c in r.contradictions)
                 print(
                     f"      سریال {r.serial} | {r.customer_name} | "
                     f"اعتبار: {r.reliability_score:.0f} | {r.status.label}"
                 )
-                if contras:
-                    print(f"        → {contras}")
+                print(f"        → {contras}")
 
     @staticmethod
     def _print_header():
         print("=" * 60)
         print("🔍 سیستم کنترل کیفیت خودکار نظرسنجی مشتریان")
+        print("   نسخه 1.1 — رفع مشکل تناقضات کیفی-کیفی")
         print("=" * 60)
 
     @staticmethod
