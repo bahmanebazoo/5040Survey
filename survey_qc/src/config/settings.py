@@ -34,11 +34,48 @@ class StatusThresholds:
 
 
 @dataclass(frozen=True)
+class SurveyFreshnessConfig:
+    """
+    تنظیمات تازگی نظرسنجی بر اساس روانشناسی شناختی.
+    زمان بر حسب ساعت بین تاریخ تحویل و تاریخ نظرسنجی.
+    """
+    # مرزهای زمانی (ساعت)
+    suspicious_max: float = 1.0
+    golden_max: float = 6.0
+    normal_max: float = 24.0
+    faded_max: float = 72.0
+
+    # ضرایب اعتماد
+    suspicious_trust: float = 0.70
+    golden_trust: float = 1.00
+    normal_trust: float = 0.90
+    faded_trust: float = 0.75
+    stale_trust: float = 0.50
+
+    def get_trust_factor(self, hours: float | None) -> tuple[float, str]:
+        """محاسبه ضریب اعتماد و برچسب فارسی."""
+        if hours is None:
+            return 1.0, "نامشخص"
+        if hours < 0:
+            return 1.0, "نامعتبر"
+        if hours <= self.suspicious_max:
+            return self.suspicious_trust, "مشکوک (≤۱ ساعت)"
+        if hours <= self.golden_max:
+            return self.golden_trust, "طلایی (۱-۶ ساعت)"
+        if hours <= self.normal_max:
+            return self.normal_trust, "عادی (۶-۲۴ ساعت)"
+        if hours <= self.faded_max:
+            return self.faded_trust, "کم‌رنگ (۲۴-۷۲ ساعت)"
+        return self.stale_trust, "کهنه (>۷۲ ساعت)"
+
+
+@dataclass(frozen=True)
 class Settings:
     """Master settings container."""
     delivery: DeliveryThresholds = field(default_factory=DeliveryThresholds)
     penalties: PenaltyConfig = field(default_factory=PenaltyConfig)
     status: StatusThresholds = field(default_factory=StatusThresholds)
+    freshness: SurveyFreshnessConfig = field(default_factory=SurveyFreshnessConfig)
 
     # Column name candidates for flexible resolution
     column_mappings: dict = field(default_factory=lambda: {
@@ -62,7 +99,6 @@ class Settings:
 
     # ──────────────────────────────────────────────────────────
     # ONLY these 4 pairs are real contradictions.
-    # NO guessing. NO keyword matching. NO priority-based pairing.
     # ──────────────────────────────────────────────────────────
     explicit_contradiction_pairs: list = field(default_factory=lambda: [
         ("تحویل به موقع", "تاخیر در ارسال سفارش"),

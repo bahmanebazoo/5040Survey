@@ -3,6 +3,8 @@ QC Engine — Orchestrates contradiction detection across all detectors.
 Follows Dependency Inversion: depends on abstractions, not concretes.
 """
 
+from typing import Optional
+
 import pandas as pd
 
 from src.detectors.base import ContradictionDetector
@@ -16,6 +18,10 @@ class QCEngine:
     """
     Core engine that runs all registered contradiction detectors
     against each survey row and produces QCResult objects.
+
+    ⚠ freshness_detector جدا از detectors است:
+       - detectors: لیست ContradictionDetector با متد detect()
+       - freshness_detector: SurveyFreshnessDetector با متد evaluate()
     """
 
     def __init__(
@@ -23,11 +29,13 @@ class QCEngine:
         detectors: list[ContradictionDetector],
         key_parser: KeySheetParser,
         col_resolver: ColumnResolver,
+        freshness_detector=None,
         verbose: bool = False,
     ):
         self._detectors = detectors
         self._key_parser = key_parser
         self._cols = col_resolver
+        self._freshness = freshness_detector
         self._verbose = verbose
 
     def analyze(self, df: pd.DataFrame) -> list[QCResult]:
@@ -63,6 +71,17 @@ class QCEngine:
         # Calculate delivery hours
         delivery_hours = self._calculate_delivery_hours(row)
 
+        # ── محاسبه تازگی نظرسنجی ──
+        survey_hours: Optional[float] = None
+        freshness_trust: float = 1.0
+        freshness_label: str = "نامشخص"
+
+        if self._freshness is not None:
+            survey_hours, freshness_trust, freshness_label = (
+                self._freshness.evaluate(row, self._cols)
+            )
+        # ──────────────────────────
+
         result = QCResult(
             row_index=row.name,
             serial=serial,
@@ -71,9 +90,12 @@ class QCEngine:
             courier=courier,
             score=score,
             delivery_hours=delivery_hours,
+            survey_hours=survey_hours,
+            freshness_label=freshness_label,
+            freshness_trust=freshness_trust,
         )
 
-        # Run all detectors
+        # Run all contradiction detectors
         all_contradictions = []
         for detector in self._detectors:
             try:
@@ -86,7 +108,8 @@ class QCEngine:
                         f"error at row {row.name}: {e}"
                     )
 
-        result.apply_contradictions(all_contradictions)
+        # اعمال تناقضات با ضریب اعتماد
+        result.apply_contradictions(all_contradictions, trust_factor=freshness_trust)
         return result
 
     def _calculate_delivery_hours(self, row: pd.Series) -> float | None:

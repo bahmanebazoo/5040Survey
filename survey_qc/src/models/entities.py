@@ -38,11 +38,40 @@ class QCResult:
     contradictions: list[Contradiction] = field(default_factory=list)
     delivery_hours: Optional[float] = None
 
-    def apply_contradictions(self, contradictions: list[Contradiction]):
-        """Apply detected contradictions and update reliability score."""
+    # فیلدهای تازگی نظرسنجی
+    survey_hours: Optional[float] = None
+    freshness_label: str = "نامشخص"
+    freshness_trust: float = 1.0
+
+    def apply_contradictions(
+        self,
+        contradictions: list[Contradiction],
+        trust_factor: float = 1.0,
+    ):
+        """
+        Apply detected contradictions and update reliability score.
+
+        جریمه بر اساس ضریب اعتماد تازگی نظرسنجی تنظیم می‌شود:
+        - مشکوک (≤1h): تشدید جریمه (تقسیم بر 0.7)
+        - طلایی (1-6h): بدون تغییر
+        - عادی (6-24h): تخفیف 10%
+        - کم‌رنگ (24-72h): تخفیف 25%
+        - کهنه (>72h): تخفیف 50%
+        """
         self.contradictions.extend(contradictions)
-        total_penalty = sum(c.penalty for c in self.contradictions)
-        self.reliability_score = max(0.0, min(100.0, 100.0 - total_penalty))
+        raw_penalty = sum(c.penalty for c in self.contradictions)
+
+        # تنظیم جریمه بر اساس تازگی
+        if trust_factor == 1.0 or self.survey_hours is None:
+            adjusted_penalty = raw_penalty
+        elif self.survey_hours is not None and self.survey_hours <= 1.0:
+            # مشکوک: تشدید جریمه
+            adjusted_penalty = raw_penalty / trust_factor if trust_factor > 0 else raw_penalty
+        else:
+            # کهنه/کم‌رنگ: تخفیف جریمه
+            adjusted_penalty = raw_penalty * trust_factor
+
+        self.reliability_score = max(0.0, min(100.0, 100.0 - adjusted_penalty))
         self.status = QCStatus.from_score(self.reliability_score)
 
     @property

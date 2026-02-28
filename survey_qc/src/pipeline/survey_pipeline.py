@@ -23,6 +23,7 @@ from src.models.exceptions import DataLoadError
 from src.parsers.column_resolver import ColumnResolver
 from src.parsers.key_sheet_parser import KeySheetParser
 from src.reporting.report_generator import ExcelReportGenerator
+from src.detectors.freshness import SurveyFreshnessDetector
 
 
 class SurveyQCPipeline:
@@ -71,7 +72,12 @@ class SurveyQCPipeline:
 
         # 5. Run QC engine
         print("\n⚙️ اجرای موتور کنترل کیفیت...")
-        engine = QCEngine(detectors, key_parser, col_resolver, self._verbose)
+        engine = QCEngine(
+            detectors,
+            key_parser,
+            col_resolver,
+            SurveyFreshnessDetector(self._settings.freshness),
+            self._verbose)
         results = engine.analyze(survey_df)
 
         # 6. Print summary
